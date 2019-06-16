@@ -69,7 +69,7 @@ class CommandGenerator:
 
     @staticmethod
     def SwitchSet(addressBytes, port, on):
-        d1 = bytearray([addressBytes[0], addressBytes[1],addressBytes[2], addressBytes[3], port, on])
+        d1 = bytearray([addressBytes[0], addressBytes[1],addressBytes[2], addressBytes[3], port, on, 0, 0])
         db = DataObjects.DataPackage()
         db.setFields(0x0B,0,d1)
         return db

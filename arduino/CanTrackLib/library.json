@@ -1,0 +1,13 @@
+{
+  "name": "CANTrackLib",
+  "keywords": "can, maerklin, mcp2515, MCP-2515",
+  "description": "Library provides CAN communication interface for Maerklin CAN bus",
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/Eurostar64/RailuinoSrcp"
+  },
+  "version": "0.1",
+  "frameworks": "arduino",
+  "platforms": "atmelavr"
+}

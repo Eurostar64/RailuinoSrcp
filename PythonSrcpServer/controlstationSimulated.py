@@ -4,51 +4,13 @@ import serial
 import time
 import DataObjects
 import Generators
+import controlstation
 
-class GenericLoco:
+
+
+class controlstationSimulated:
     
-    def __init__(self, addr, prot, protversion, decoderspeedsteps, numberoffunctions):
-        self.addr = addr
-        self.prot = prot
-        self.protversion = protversion
-        self.decoderspeedsteps = int(decoderspeedsteps)
-        self.numberoffunctions = numberoffunctions    
-        self.drivemode = 0
-        self.v = 0
-        self.vmax = decoderspeedsteps
-        self.functions = [False] * numberoffunctions
-
-        #pace width is according to maerklin spec
-        paceWidth = 0
-        if self.decoderspeedsteps == 14:
-            paceWidth = 77
-        elif self.decoderspeedsteps == 27:
-            paceWidth = 38
-        elif self.decoderspeedsteps == 28:
-            paceWidth = 37
-        elif self.decoderspeedstepss == 31:
-            paceWidth = 33
-        elif self.decoderspeedsteps == 126:
-            paceWidth = 8
-        else:
-            paceWidth = int(round(1000 / loco.decoderspeedsteps))
-
-        self.paceWidth = paceWidth
-
-class GenericSwitch:
-
-    def __init__(self, addr, prot):
-        self.addr = addr
-        self.prot = prot
-        self.port = 0
-        self.value = 0
-
-
-class controlstation:
-    
-    def __init__(self, portnameCAN, portnameFB):
-        self.portnameCAN = portnameCAN
-        self.portnameFB = portnameFB
+    def __init__(self):
         self.locos = {}
         self.acc = {}
         self.fbs = {}
@@ -56,69 +18,9 @@ class controlstation:
         self.infocb = None
         
     def start(self):
-        #open CAN connection and start listening
-        self.ser = serial.Serial(port = self.portnameCAN, baudrate = 115200, bytesize=8, parity='N', stopbits=1, timeout=None, rtscts=1)
-        print('serial conn to arduino (CAN) open')
-        t = threading.Thread(target=controlstation.serialListener, args=(self,))
-        t.start()
-        #if set -> open connection to FB arduino
-        if not self.portnameFB == '' :
-            self.serFB = serial.Serial(port = self.portnameFB, baudrate = 9600, bytesize=8, parity='N', stopbits=1, timeout=None, rtscts=1)
-            print('serial conn to arduino (FB) open')
-            t = threading.Thread(target=controlstation.serialListenerFB, args=(self,))
-            t.start()
+        print('started')
 
-    def serialListener(self):
-
-        arduinoSketchVersion = 2
-
-        # New sketch version puts up some startup info
-        # wait for startup to be complete before starting real communication
-        if arduinoSketchVersion > 1:
-            while 1:
-                info = str(self.ser.readline())
-                print('serial info:'+info)
-                if "### Startup complete" in info:
-                    break
-
-        while 1:
-            #print(self.ser.readline())
-            dp = DataObjects.DataPackage()
-            dp.setFromIncomingPackage(self.ser.read(13))
-            if dp.isResponse or True:
-                print("CAN :"+dp.getString())
-                print("CAN :"+dp.getString2())
-                s = ''
-                #handle packet
-                if dp.Command == 0x00:
-                    if   dp.data[4] == 0x00: self.powerEvent(0)
-                    elif dp.data[4] == 0x01: self.powerEvent(1)
-                    elif dp.data[4] == 0x02: s+= "Halt"
-                    elif dp.data[4] == 0x03: self.glEventSpeed(dp.getAddressAsNumber(), 0)
-                elif dp.Command == 0x04:
-                    self.glEventSpeed(dp.getAddressAsNumber(), dp.getSpeedAsNumber())
-                elif dp.Command == 0x05:
-                    self.glEventDirection(dp.getAddressAsNumber(), dp.getDirectionAsNumber())
-                elif dp.Command == 0x06:
-                    self.glEventFunction(dp.getAddressAsNumber(), dp.getFunctionNoAsNumber(), dp.getFunctionValAsNumber())
-                elif dp.Command == 0x0B:
-                    self.gaEvent(dp.getAddressAsNumber()+1, dp.getGAPort(), dp.getGAValue());
-
-    def serialListenerFB(self):
-        while 1:
-            line = str(self.serFB.readline()).replace('\\n', '').replace('\\r', '').replace("'", '')
-            if 'FB' in line:
-                spl = line.split(':')
-                address = int(spl[1]) + 1
-                value = int(spl[2]) > 0
-                self.fbEvent(address, value)
-            elif 'RFID' in line:
-                spl = line.split('#')
-                rfidtag = spl[1]
-                self.rfidEvent(rfidtag)
-
-
-    # TRACK OPERATIONS
+    # SIMULATED TRACK OPERATIONS
 
     def writeToTrack(self, package):
         print("SELF:"+package.getString())
@@ -126,35 +28,29 @@ class controlstation:
         self.ser.write(package.getBytesToSend())
     
     def setLocoSpeed(self, loco, newSpeed):
-        gc = Generators.CommandGenerator
         trackSpeed = 1 + (newSpeed - 1) * loco.paceWidth
         trackSpeed = max(0, min(1000, trackSpeed))
         if loco.prot == 'M':
-            package = gc.LocoSetSpeed(gc.getLocoAddressMM2(loco.addr), trackSpeed)
-            self.writeToTrack(package)
+            self.glEventSpeed(loco.addr, trackSpeed)
             return 1
         elif loco.prot == 'N':
-            package = gc.LocoSetSpeed(gc.getLocoAddressDCC(loco.addr), trackSpeed)
-            self.writeToTrack(package)
+            self.glEventSpeed(loco.addr, trackSpeed)
             return 1
         else:
             return 0
 
     def setLocoEmergencyStop(self, loco):
-        gc = Generators.CommandGenerator
         if loco.prot == 'M':
-            package = gc.LocoEmergencyStop(gc.getLocoAddressMM2(loco.addr))
-            self.writeToTrack(package)
+            self.glEventSpeed(loco.addr, 0)
             return 1
         elif loco.prot == 'N':
-            package = gc.LocoEmergencyStop(gc.getLocoAddressDCC(loco.addr))
-            self.writeToTrack(package)
+            self.glEventSpeed(loco.addr, 0)
             return 1
         else:
             return 0
 
     def setLocoDirection(self, loco, newDirection_SrcpParam):
-        gc = Generators.CommandGenerator
+        
         newDir_CanParam = 0 #stay the same
         if newDirection_SrcpParam == 0: #backward
             newDir_CanParam = 2
@@ -162,28 +58,23 @@ class controlstation:
             newDir_CanParam = 1
 
         if loco.prot == 'M':
-            package = gc.LocoSetDirection(gc.getLocoAddressMM2(loco.addr), newDir_CanParam)
-            self.writeToTrack(package)
+            self.glEventDirection(loco.addr, newDir_CanParam)
             return 1
         elif loco.prot == 'N':
-            package = gc.LocoSetDirection(gc.getLocoAddressDCC(loco.addr), newDir_CanParam)
-            self.writeToTrack(package)
+            self.glEventDirection(loco.addr, newDir_CanParam)
             return 1
         else:
             return 0
 
     def setLocoFunction(self, loco, fIdx, fVal):
-        gc = Generators.CommandGenerator
         if fIdx >= len(loco.functions):
             return 0
 
         if loco.prot == 'M':
-            package = gc.LocoSetFunction(gc.getLocoAddressMM2(loco.addr), fIdx, fVal)
-            self.writeToTrack(package)
+            self.glEventFunction(loco.addr, fIdx, fVal)
             return 1
         elif loco.prot == 'N':
-            package = gc.LocoSetFunction(gc.getLocoAddressDCC(loco.addr), fIdx, fVal)
-            self.writeToTrack(package)
+            self.glEventFunction(loco.addr, fIdx, fVal)
             return 1
         else:
             return 0
@@ -191,34 +82,18 @@ class controlstation:
     # ACC OPERATIONS
 
     def setSwitch(self, acc, port, delay):
-        gc = Generators.CommandGenerator
-        start_time = time.time()           
-        if acc.prot == 'M':
-            package = gc.SwitchSet(gc.getAccAddressMM2(acc.addr-1), port, 1);
-            self.writeToTrack(package)
-            time.sleep(1)
-            package2 = gc.SwitchSet(gc.getAccAddressMM2(acc.addr-1), port, 0);
-            self.writeToTrack(package2)
-        elif acc.prot == 'N':
-            package = gc.SwitchSet(gc.getAccAddressDCC(acc.addr-1), port, 1);
-            self.writeToTrack(package)
-            time.sleep(1)
-            package2 = gc.SwitchSet(gc.getAccAddressDCC(acc.addr-1), port, 0);
-            self.writeToTrack(package2)
-        print("setSwitch completed within %s sec" % (time.time() - start_time)) 
+        time.sleep(1)
+        self.gaEvent(acc.addr, port, 1)
         return 1
 
     #Power
 
     def POWER_SET(self, status):
-        gc = Generators.CommandGenerator
         if status:
-            package = gc.SystemGo()
-            self.writeToTrack(package)
+            self.powerEvent(1)
             return 1
         else:
-            package = gc.SystemStop()
-            self.writeToTrack(package)
+            self.powerEvent(0)
             return 1
 
     # Events / FB / RFID
@@ -293,7 +168,7 @@ class controlstation:
         if addr in self.locos:
             return 0
         else:
-            loco = GenericLoco(addr, prot, protversion, decoderspeedsteps, numberfunctions)
+            loco = controlstation.GenericLoco(addr, prot, protversion, decoderspeedsteps, numberfunctions)
             self.locos[addr] = loco
             (code, codeMsg, Msg) = self.getSingleInfoTupleGL(loco)
             self.infocb(code, codeMsg, Msg)
@@ -349,7 +224,7 @@ class controlstation:
         if addr in self.acc:
             return 0
         else:
-            sw = GenericSwitch(addr, prot)
+            sw = controlstation.GenericSwitch(addr, prot)
             self.acc[addr] = sw
             (code, codeMsg, Msg) = self.getSingleInfoTupleGA(sw)
             self.infocb(code, codeMsg, Msg)
